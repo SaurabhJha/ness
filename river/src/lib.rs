@@ -1,6 +1,6 @@
 pub mod planner;
 
-use planner::RowOperation;
+use planner::{RowOperation, Planner};
 
 struct Tensor {
     elements: Vec<f64>,
@@ -23,24 +23,24 @@ impl Tensor
     }
 
     fn apply_gaussian_elimination(&mut self) {
-        let mut operations = vec![];
+        let mut planner = Planner::new();
         for pivot_row_idx in 0..self.dimensions[0] {
             let pivot_row = &self.get_row_slice(pivot_row_idx);
             let pivot = pivot_row[pivot_row_idx];
             for eliminate_row_idx in pivot_row_idx + 1..self.dimensions[0] {
                 let eliminate_row = &self.get_row_slice(eliminate_row_idx);
-                operations.push(
+                planner.add_operation(
                     RowOperation {
                         row_operand_idx1: pivot_row_idx,
                         row_operand_idx2: eliminate_row_idx,
                         destination_row_idx: eliminate_row_idx,
-                        factor1: eliminate_row[pivot_row_idx] / pivot,
+                        factor1: -1.0 * eliminate_row[pivot_row_idx] / pivot,
                         factor2: 1.0,
                     }
                 );
             }
         }
-        println!("{:#?}", operations);
+        planner.optimize();
     }
 }
 
