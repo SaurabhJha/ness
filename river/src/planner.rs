@@ -1,4 +1,4 @@
-use std::collections::{HashSet};
+use std::collections::HashSet;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RowOperation {
@@ -31,15 +31,17 @@ impl Planner {
         let mut seen_destination_indices = HashSet::<usize>::new();
         let mut current_parallel_operations = vec![];
         for op in self.input_operations.iter() {
-            if seen_destination_indices.contains(&op.destination_row_idx) {
+            if seen_destination_indices.contains(&op.row_operand_idx1)
+                || seen_destination_indices.contains(&op.row_operand_idx2)
+            {
                 // End the current parallel operations and start a new block. Also clear seen_destination_indices.
-                self.optimized_operations.push(current_parallel_operations.clone());
+                self.optimized_operations
+                    .push(current_parallel_operations.clone());
                 seen_destination_indices.clear();
                 current_parallel_operations = vec![];
             }
             seen_destination_indices.insert(op.destination_row_idx);
             current_parallel_operations.push(*op);
-            // println!("{:#?}", self.optimized_operations);
         }
         self.optimized_operations.push(current_parallel_operations);
     }
