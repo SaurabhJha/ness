@@ -1,6 +1,51 @@
-pub mod planner;
+use std::collections::HashSet;
 
-use planner::{Planner, RowOperation};
+#[derive(Debug, Copy, Clone)]
+struct RowOperation {
+    pub row_operand_idx1: usize,
+    pub row_operand_idx2: usize,
+    pub destination_row_idx: usize,
+    pub factor1: f64,
+    pub factor2: f64,
+}
+
+struct Planner {
+    pub input_operations: Vec<RowOperation>,
+    pub optimized_operations: Vec<Vec<RowOperation>>,
+}
+
+impl Planner {
+    fn new() -> Planner {
+        Planner {
+            input_operations: vec![],
+            optimized_operations: vec![],
+        }
+    }
+
+    fn add_operation(&mut self, operation: RowOperation) {
+        self.input_operations.push(operation);
+    }
+
+    fn optimize(&mut self) {
+        // Here goes our optimization algorithm.
+        let mut seen_destination_indices = HashSet::<usize>::new();
+        let mut current_parallel_operations = vec![];
+        for op in self.input_operations.iter() {
+            if seen_destination_indices.contains(&op.row_operand_idx1)
+                || seen_destination_indices.contains(&op.row_operand_idx2)
+            {
+                // End the current parallel operations and start a new block. Also clear seen_destination_indices.
+                self.optimized_operations
+                    .push(current_parallel_operations.clone());
+                seen_destination_indices.clear();
+                current_parallel_operations = vec![];
+            }
+            seen_destination_indices.insert(op.destination_row_idx);
+            current_parallel_operations.push(*op);
+        }
+        self.optimized_operations.push(current_parallel_operations);
+    }
+}
 
 struct Tensor {
     elements: Vec<f64>,
