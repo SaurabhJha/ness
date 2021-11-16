@@ -1,100 +1,116 @@
-use std::collections::HashSet;
-
-#[derive(Debug, Copy, Clone)]
-struct RowOperation {
-    pub row_operand_idx1: usize,
-    pub row_operand_idx2: usize,
-    pub destination_row_idx: usize,
-    pub factor1: f64,
-    pub factor2: f64,
-}
-
-struct Planner {
-    pub input_operations: Vec<RowOperation>,
-    pub optimized_operations: Vec<Vec<RowOperation>>,
-}
-
-impl Planner {
-    fn new() -> Planner {
-        Planner {
-            input_operations: vec![],
-            optimized_operations: vec![],
-        }
-    }
-
-    fn add_operation(&mut self, operation: RowOperation) {
-        self.input_operations.push(operation);
-    }
-
-    fn optimize(&mut self) {
-        // Here goes our optimization algorithm.
-        let mut seen_destination_indices = HashSet::<usize>::new();
-        let mut current_parallel_operations = vec![];
-        for op in self.input_operations.iter() {
-            if seen_destination_indices.contains(&op.row_operand_idx1)
-                || seen_destination_indices.contains(&op.row_operand_idx2)
-            {
-                // End the current parallel operations and start a new block. Also clear seen_destination_indices.
-                self.optimized_operations
-                    .push(current_parallel_operations.clone());
-                seen_destination_indices.clear();
-                current_parallel_operations = vec![];
-            }
-            seen_destination_indices.insert(op.destination_row_idx);
-            current_parallel_operations.push(*op);
-        }
-        self.optimized_operations.push(current_parallel_operations);
-    }
-}
-
-struct Tensor {
+struct Matrix {
     elements: Vec<f64>,
-    dimensions: Vec<usize>,
-    planner: Planner,
+    dimensions: (usize, usize),
 }
 
-impl Tensor {
-    fn new(elements: Vec<f64>, dimensions: Vec<usize>) -> Tensor {
-        Tensor {
+impl Matrix {
+    fn new(elements: Vec<f64>, dimensions: (usize, usize)) -> Matrix {
+        Matrix {
             elements,
             dimensions,
-            planner: Planner::new(),
         }
     }
 
-    fn get_row(&self, row_idx: usize) -> &[f64] {
-        let start_idx = row_idx * &self.dimensions[1];
-        let end_idx = start_idx + &self.dimensions[1];
-        &self.elements[start_idx..end_idx]
+    fn get_element(&self, row_idx: usize, col_idx: usize) -> f64 {
+        let ncols = self.dimensions.1;
+        self.elements[row_idx * ncols + col_idx]
     }
 
-    fn lu_decomposition(&mut self) {
-        for pivot_row_idx in 0..self.dimensions[0] {
-            let pivot_row = &self.get_row(pivot_row_idx);
-            let pivot = pivot_row[pivot_row_idx];
-            for eliminate_row_idx in pivot_row_idx + 1..self.dimensions[0] {
-                let eliminate_row = &self.get_row(eliminate_row_idx);
-                self.planner.add_operation(RowOperation {
-                    row_operand_idx1: pivot_row_idx,
-                    row_operand_idx2: eliminate_row_idx,
-                    destination_row_idx: eliminate_row_idx,
-                    factor1: -1.0 * eliminate_row[pivot_row_idx] / pivot,
-                    factor2: 1.0,
-                });
+    fn get_pivot_row_idx(&self, col_idx: usize) -> usize {
+        let mut column_elements = vec![];
+        for row_idx in 0..self.dimensions.0 {
+            column_elements.push(self.get_element(row_idx, col_idx));
+        }
+
+        let mut pivot_row_idx = 0;
+        let mut max_element = column_elements[pivot_row_idx].abs();
+        for col_idx in 1..self.dimensions.1 {
+            if column_elements[col_idx].abs() < max_element && column_elements[col_idx] != 0.0 {
+                pivot_row_idx = col_idx;
+                max_element = column_elements[pivot_row_idx].abs();
+            } else if max_element == 0.0 {
+                pivot_row_idx = col_idx;
+                max_element = column_elements[pivot_row_idx].abs();
             }
         }
-        self.planner.optimize();
-        println!("{:#?}", self.planner.optimized_operations);
+        pivot_row_idx
+    }
+
+    fn get_row(&self, row_idx: usize) -> Vec<f64> {
+        let mut row = vec![];
+        for col_idx in 0..self.dimensions.1 {
+            row.push(self.get_element(row_idx, col_idx));
+        }
+        row
+    }
+
+    fn construct_rank_one_lu(&self, row_idx: usize, col_idx: usize) -> RankOneMatrix {
+        let row = self.get_row(row_idx);
+        let mut col = vec![];
+        let pivot = self.get_element(row_idx, col_idx);
+        for r_idx in 0..self.dimensions.0 {
+            col.push(self.get_element(r_idx, col_idx) / pivot);
+        }
+        RankOneMatrix { row, col }
+    }
+
+    fn subtract_with_rank_one_matrix(&self, rank_one_matrix: &RankOneMatrix) -> Matrix {
+        let mut new_matrix_elements = vec![];
+        for row_idx in 0..self.dimensions.0 {
+            let main_matrix_row = self.get_row(row_idx);
+            let rank_one_matrix_row = rank_one_matrix.get_row(row_idx);
+            for col_idx in 0..self.dimensions.1 {
+                new_matrix_elements.push(main_matrix_row[col_idx] - rank_one_matrix_row[col_idx]);
+            }
+        }
+        Matrix {
+            elements: new_matrix_elements,
+            dimensions: (self.dimensions.0, self.dimensions.1),
+        }
+    }
+
+    fn lu(&mut self) -> Vec<RankOneMatrix> {
+        let mut result = vec![];
+        for col_idx in 0..self.dimensions.1 {
+            let row_idx = self.get_pivot_row_idx(col_idx);
+            let rank_one_lu = self.construct_rank_one_lu(row_idx, col_idx);
+            *self = self.subtract_with_rank_one_matrix(&rank_one_lu);
+            result.push(rank_one_lu);
+        }
+        result
+    }
+}
+
+#[derive(Debug)]
+struct RankOneMatrix {
+    row: Vec<f64>,
+    col: Vec<f64>,
+}
+
+impl RankOneMatrix {
+    fn new(row: Vec<f64>, col: Vec<f64>) -> RankOneMatrix {
+        RankOneMatrix { row, col }
+    }
+
+    fn get_row(&self, row_idx: usize) -> Vec<f64> {
+        let mut row = vec![];
+        for col_idx in 0..self.row.len() {
+            row.push(self.row[col_idx] * self.col[row_idx]);
+        }
+        row
     }
 }
 
 #[test]
 fn scratchpad() {
-    let mut t = Tensor::new(
+    let mut t = Matrix::new(
         vec![
-            1.0, -1.0, -1.0, 1.0, 0.0, -1.0, -2.0, 0.0, 2.0, 0.0, 2.0, 0.0, 3.0, -3.0, -2.0, 4.0,
+            1.0, -1.0, -1.0, 1.0,
+            2.0, 0.0, 2.0, 0.0,
+            0.0, -1.0, -2.0, 0.0,
+            3.0, -3.0, -2.0, 4.0,
         ],
-        vec![4, 4],
+        (4, 4),
     );
-    t.lu_decomposition();
+    t.lu();
 }
